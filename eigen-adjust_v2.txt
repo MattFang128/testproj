@@ -1,0 +1,312 @@
+import numpy as np
+import pandas as pd
+from scipy import linalg
+import matplotlib.pyplot as plt
+from sklearn.covariance import empirical_covariance
+
+def eigenvariance_debias(returns, a=1.4, num_simulations=1000):
+    """
+    Implement the eigenvariance de-biasing method from the paper.
+    
+    Parameters:
+    -----------
+    returns : ndarray
+        T×N matrix of asset returns
+    a : float
+        Scaling parameter for bias correction (default=1.4 as in the paper)
+    num_simulations : int
+        Number of simulations to run for bias estimation
+        
+    Returns:
+    --------
+    V_tilde : ndarray
+        Eigen-adjusted covariance matrix
+    """
+    T, N = returns.shape
+    
+    # Step 1: Compute sample covariance matrix V_0 = f·f'/(T-1)
+    V_0 = empirical_covariance(returns, assume_centered=False)
+    
+    # Step 2: Perform eigendecomposition of V_0
+    eigenvals_0, U_0 = linalg.eigh(V_0)
+    # Sort in ascending order (scipy returns them this way by default)
+    D_0 = np.diag(eigenvals_0)
+    
+    # Store the simulated volatility biases for each eigenfactor
+    volatility_biases = np.zeros((num_simulations, N))
+    
+    print(f"Running {num_simulations} simulations to estimate eigenfactor biases...")
+    
+    for m in range(num_simulations):
+        # Step 3: Generate simulated returns using the original eigenfactors
+        b_m = np.random.normal(0, 1, size=(T, N))
+        # Scale each row by the square root of the corresponding eigenvalue
+        for k in range(N):
+            b_m[:, k] *= np.sqrt(eigenvals_0[k])
+        
+        # Convert simulated eigenfactor returns to asset returns: f_m = U_0·b_m
+        f_m = np.dot(b_m, U_0.T)
+        
+        # Step 4: Compute the sample covariance matrix from simulated returns
+        V_m = empirical_covariance(f_m, assume_centered=False)
+        
+        # Step 5: Eigendecompose the simulated covariance matrix
+        eigenvals_m, U_m = linalg.eigh(V_m)
+        D_m = np.diag(eigenvals_m)
+        
+        # Step 6: Compute the "true" covariance of simulated eigenfactors (not diagonal)
+        # D_tilde_m = U_m^T · V_0 · U_m
+        D_tilde_m = U_m.T @ V_0 @ U_m
+        
+        # For each eigenfactor k, compute the simulated volatility bias ratio
+        for k in range(N):
+            D_m_k = eigenvals_m[k]  
+            D_tilde_m_k = D_tilde_m[k, k]  # Diagonal element only
+            volatility_biases[m, k] = np.sqrt(D_m_k / D_tilde_m_k)
+    
+    # Step 7: Calculate the average volatility bias for each eigenfactor
+    lambda_k = np.mean(volatility_biases, axis=0)
+    
+    # Step 8: Compute the empirical volatility bias adjustment factors
+    # γ(k) = a[λ(k)-1] + 1
+    gamma_k = a * (lambda_k - 1) + 1
+    
+    # Step 9: Adjust the eigenvalues with the bias correction factors
+    # D_tilde_0 = γ^2 · D_0
+    adjusted_eigenvals = eigenvals_0 / (gamma_k ** 2)
+    D_tilde_0 = np.diag(adjusted_eigenvals)
+    
+    # Step 10: Rotate back to the standard basis to get the adjusted covariance matrix
+    # V_tilde_0 = U_0 · D_tilde_0 · U_0^T
+    V_tilde_0 = U_0 @ D_tilde_0 @ U_0.T
+    
+    # Store diagnostics for return
+    diagnostics = {
+        'eigenvals_original': eigenvals_0,
+        'eigenvals_adjusted': adjusted_eigenvals,
+        'bias_factors': gamma_k,
+        'mean_volatility_bias': lambda_k
+    }
+    
+    return V_tilde_0, diagnostics
+
+def plot_eigenvalue_adjustment(diagnostics):
+    """Plot the original and adjusted eigenvalues and bias factors."""
+    eigenvals_original = diagnostics['eigenvals_original']
+    eigenvals_adjusted = diagnostics['eigenvals_adjusted']
+    bias_factors = diagnostics['bias_factors']
+    mean_volatility_bias = diagnostics['mean_volatility_bias']
+    
+    n_eigenvals = len(eigenvals_original)
+    indices = np.arange(n_eigenvals)
+    
+    plt.figure(figsize=(15, 10))
+    
+    # Plot 1: Original vs Adjusted Eigenvalues
+    plt.subplot(2, 1, 1)
+    plt.semilogy(indices, eigenvals_original, 'bo-', label='Original Eigenvalues')
+    plt.semilogy(indices, eigenvals_adjusted, 'ro-', label='Adjusted Eigenvalues')
+    plt.xlabel('Eigenfactor Index (smallest to largest)')
+    plt.ylabel('Eigenvalue (log scale)')
+    plt.title('Original vs. Adjusted Eigenvalues')
+    plt.legend()
+    plt.grid(True)
+    
+    # Plot 2: Bias Factors
+    plt.subplot(2, 2, 3)
+    plt.plot(indices, mean_volatility_bias, 'go-', label='λ(k) - Volatility Bias')
+    plt.axhline(y=1.0, color='k', linestyle='--', label='No Bias')
+    plt.xlabel('Eigenfactor Index (smallest to largest)')
+    plt.ylabel('Volatility Bias λ(k)')
+    plt.title('Mean Simulated Volatility Bias')
+    plt.legend()
+    plt.grid(True)
+    
+    # Plot 3: Correction Factors
+    plt.subplot(2, 2, 4)
+    plt.plot(indices, bias_factors, 'mo-', label='γ(k) - Correction Factor')
+    plt.axhline(y=1.0, color='k', linestyle='--', label='No Correction')
+    plt.xlabel('Eigenfactor Index (smallest to largest)')
+    plt.ylabel('Correction Factor γ(k)')
+    plt.title('Eigenvariance Correction Factors')
+    plt.legend()
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
+def backtest_portfolio_performance(returns, window_size=252, a_values=None):
+    """
+    Backtest the performance of minimum variance portfolios using different de-biasing parameters.
+    
+    Parameters:
+    -----------
+    returns : DataFrame
+        Asset returns
+    window_size : int
+        Size of the rolling window for covariance estimation
+    a_values : list
+        List of a parameter values to test
+        
+    Returns:
+    --------
+    DataFrame
+        Portfolio returns for each method
+    """
+    if a_values is None:
+        a_values = [0, 1.0, 1.4, 1.8]  # 0 means no adjustment
+    
+    T, N = returns.shape
+    
+    # Create result dataframe for portfolio returns
+    portfolio_returns = pd.DataFrame(index=returns.index[window_size:])
+    
+    for a in a_values:
+        method_name = f"a={a}" if a > 0 else "Unadjusted"
+        portfolio_returns[method_name] = np.nan
+    
+    # Rolling window approach
+    for t in range(window_size, T):
+        if t % 50 == 0:
+            print(f"Processing window ending at {returns.index[t]}")
+            
+        # Get window of returns
+        window_returns = returns.iloc[t-window_size:t].values
+        
+        # For each adjustment parameter
+        for a in a_values:
+            method_name = f"a={a}" if a > 0 else "Unadjusted"
+            
+            try:
+                if a > 0:
+                    # Apply eigenvariance de-biasing
+                    adj_cov, _ = eigenvariance_debias(window_returns, a=a, num_simulations=200)
+                else:
+                    # Use regular sample covariance
+                    adj_cov = empirical_covariance(window_returns)
+                
+                # Calculate minimum variance portfolio weights
+                inv_cov = linalg.inv(adj_cov)
+                ones = np.ones(N)
+                weights = inv_cov @ ones
+                weights = weights / np.sum(weights)
+                
+                # Calculate next period return
+                next_return = returns.iloc[t].values @ weights
+                portfolio_returns.loc[returns.index[t], method_name] = next_return
+                
+            except np.linalg.LinAlgError:
+                print(f"Warning: Singular matrix in period {t} for method {method_name}")
+                portfolio_returns.loc[returns.index[t], method_name] = np.nan
+    
+    return portfolio_returns
+
+def evaluate_portfolio_performance(portfolio_returns):
+    """Evaluate portfolio performance."""
+    # Calculate cumulative returns
+    cumulative_returns = (1 + portfolio_returns).cumprod()
+    
+    # Plot cumulative returns
+    plt.figure(figsize=(12, 6))
+    cumulative_returns.plot()
+    plt.title('Cumulative Portfolio Returns')
+    plt.ylabel('Cumulative Return')
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    # Calculate performance metrics
+    annual_factor = 252  # Assuming daily returns
+    
+    metrics = pd.DataFrame(index=portfolio_returns.columns)
+    
+    # Annualized return
+    metrics['Annual Return (%)'] = portfolio_returns.mean() * annual_factor * 100
+    
+    # Annualized volatility
+    metrics['Annual Volatility (%)'] = portfolio_returns.std() * np.sqrt(annual_factor) * 100
+    
+    # Sharpe ratio (assuming 0 risk-free rate for simplicity)
+    metrics['Sharpe Ratio'] = metrics['Annual Return (%)'] / metrics['Annual Volatility (%)']
+    
+    # Maximum drawdown
+    max_drawdown = []
+    for col in portfolio_returns.columns:
+        cumul = cumulative_returns[col]
+        running_max = cumul.cummax()
+        drawdown = (cumul / running_max - 1)
+        max_drawdown.append(drawdown.min() * 100)
+    
+    metrics['Max Drawdown (%)'] = max_drawdown
+    
+    # Turnover (if weights were saved)
+    
+    # Print metrics
+    print("\nPortfolio Performance Metrics:")
+    print(metrics)
+    
+    return metrics
+
+# Example usage
+if __name__ == "__main__":
+    print("Eigenvariance De-biasing Implementation")
+    print("======================================")
+    
+    # Generate synthetic return data or load real data
+    np.random.seed(42)
+    T = 1000  # Number of time periods
+    N = 30    # Number of assets
+    
+    # Option 1: Synthetic data with factor structure
+    print(f"Generating synthetic data with {N} assets and {T} periods...")
+    
+    # Create factor structure
+    n_factors = 3
+    factor_exposures = np.random.randn(N, n_factors)
+    factor_returns = np.random.randn(T, n_factors) * 0.01
+    specific_returns = np.random.randn(T, N) * 0.02
+    returns_data = specific_returns + factor_returns @ factor_exposures.T
+    
+    # Add some extreme eigenvalues to make the problem interesting
+    U, _, Vt = np.linalg.svd(returns_data, full_matrices=False)
+    S_new = np.zeros(Vt.shape[0])
+    S_new[0] = 5.0  # Dominant market factor
+    S_new[1] = 2.0  # Secondary factor
+    returns_data = U @ np.diag(S_new) @ Vt
+    
+    # Create DataFrame
+    dates = pd.date_range(end=pd.Timestamp.today(), periods=T)
+    asset_names = [f"Asset_{i+1}" for i in range(N)]
+    returns_df = pd.DataFrame(returns_data, index=dates, columns=asset_names)
+    
+    # Option 2: If you want to load real data, uncomment the following:
+    # import yfinance as yf
+    # tickers = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA', 'JPM', 'V', 'JNJ', 'PG']
+    # data = yf.download(tickers, start='2010-01-01', end='2023-01-01')['Adj Close']
+    # returns_df = data.pct_change().dropna()
+    
+    # 1. Demonstrate the eigenvariance de-biasing
+    print("\nDemonstrating eigenvariance de-biasing...")
+    
+    # Use the first window of returns
+    sample_window = returns_df.iloc[:252].values
+    
+    # Apply the eigenvariance de-biasing
+    adjusted_cov, diagnostics = eigenvariance_debias(sample_window, a=1.4, num_simulations=500)
+    
+    # Plot the adjustment
+    plot_eigenvalue_adjustment(diagnostics)
+    
+    # 2. Backtest portfolio performance
+    print("\nRunning portfolio backtest...")
+    portfolio_returns = backtest_portfolio_performance(
+        returns=returns_df,
+        window_size=252,
+        a_values=[0, 1.0, 1.4, 1.8]
+    )
+    
+    # 3. Evaluate performance
+    metrics = evaluate_portfolio_performance(portfolio_returns)
+    
+    print("\nDone!")
