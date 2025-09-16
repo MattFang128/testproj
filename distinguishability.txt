@@ -1,0 +1,52 @@
+Short answer: Treat objects as distinguishable when the wording gives them unique labels, identities, positions, or attributes; treat them as indistinguishable when the wording groups them as identical copies of a type (e.g., “identical balls,” “same color,” “identical boxes”). Every time swapping two items would not create a new described outcome, they are indistinguishable.
+Wording that implies distinguishable
+
+    Distinct names or labels: “Alice, Bob, and Carol,” “boxes 1–5,” “seat 1 to seat 10,” “numbered balls,” “team A vs team B.” Each label makes the item unique, so permutations or assignments treat them separately.
+
+    Positional identity: “seats in a row,” “arrangements around a round table with labeled seats,” “calendar days,” “slots 1–k.” Positions confer identity even if the items are otherwise alike.
+
+    Unique attributes: “different colors/shapes/sizes where color matters,” “different prizes,” “cards in a deck” (rank and suit make each card unique). If the problem cares about those attributes, those copies are different.
+
+Wording that implies indistinguishable
+
+    Identical copies: “n identical balls,” “identical coins,” “identical books,” “identical boxes.” Copies within the same stated type are treated the same; swapping them doesn’t change the outcome.
+
+    Repetition within a multiset: “arrangements of the word SUCCESS,” “three red, four blue marbles.” Copies of the same letter/color are indistinguishable; use multiset permutation logic or stars-and-bars as appropriate.
+
+    Outcome defined only by totals: “How many ways to choose toppings (set),” “number of solutions to x1+…+xk=n,” “distribute candy where children are unlabeled.” If only counts/compositions matter, copies are indistinguishable.
+
+Key phrases to watch for
+
+    Distinguishable cues: “distinct,” “different,” “labeled,” “numbered,” “named,” “ordered,” “arranged in positions,” “first/second/…,” “seat i,” “bin i,” “player A/B/C.”
+
+    Indistinguishable cues: “identical,” “indistinguishable,” “same type/color,” “copies,” “multiset,” “only the number of each type matters,” “unlabeled boxes,” “up to rotation of identical objects.”
+
+Quick decision tests
+
+    Swap test: If two items of the same described type are swapped and the described outcome is unchanged, those items are indistinguishable in this problem’s model.
+
+    Observer test: Ask what the problem’s “observer” can tell apart. If the statement would report two outcomes as the same, they’re indistinguishable; if it would report them differently, they’re distinguishable.
+
+    Noun-attribute pairing: Identify the nouns being counted (people, seats, balls, boxes) and which attributes the problem declares relevant (names, labels, colors, positions). Relevant attributes ⇒ distinguishable; irrelevant/omitted attributes ⇒ indistinguishable.
+
+Typical contest patterns and the matching model
+
+    “Arrange the letters of WORD”: Letters with repeats are indistinguishable within each letter type; use multiset permutations n!∏mi!∏mi!n!.
+
+    “Distribute n identical balls into k labeled boxes”: Balls indistinguishable, boxes distinguishable; use stars-and-bars.
+
+    “Distribute n distinct prizes to k students”: Prizes and students distinguishable; use product rule/multinomial assignments.
+
+    “Seat n people around a round table”: People distinguishable; seats unlabeled up to rotation; divide by nn (or use (n−1)!(n−1)!) unless additional symmetries apply.
+
+    “Put balls into identical boxes”: Boxes indistinguishable; use partitions/Stirling numbers depending on whether balls are distinct.
+
+Edge cases to clarify from wording
+
+    Colors vs labels: “5 red, 3 blue balls” means reds are indistinguishable among reds, but red vs blue are different types; if later the problem numbers balls, that overrides indistinguishability.
+
+    Labeled receivers, identical items: Identical items to labeled people/boxes are classic stars-and-bars; identical receivers with distinct items becomes set partitions.
+
+    Order vs set: “Lists” or “sequences” usually imply order (distinguishable positions), while “sets,” “multisets,” “combinations,” or “collections” usually do not.
+
+Rule of thumb: Read strictly for labels, names, numbers, or positional words to declare distinguishability; read for “identical/indistinguishable” or repeated-type language to declare indistinguishability. When in doubt, apply the swap test using only what the statement says is observable.
